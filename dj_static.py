@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import static
-
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIHandler
 from django.core.handlers.base import get_path_info
@@ -12,6 +10,8 @@ try:
 except ImportError:     # Python 2
     from urlparse import urlparse
 from django.contrib.staticfiles import utils
+
+from werkzeug.wsgi import SharedDataMiddleware
 
 
 class Cling(WSGIHandler):
@@ -24,7 +24,9 @@ class Cling(WSGIHandler):
             base_dir = self.get_base_dir()
         self.base_url = urlparse(self.get_base_url())
 
-        self.cling = static.Cling(base_dir)
+        self.cling = SharedDataMiddleware(application, {
+            self.base_url.path: base_dir,
+        })
         self.debug_cling = DebugHandler(base_dir)
 
         super(Cling, self).__init__()
@@ -40,11 +42,6 @@ class Cling(WSGIHandler):
     def debug(self):
         return settings.DEBUG
 
-    def _transpose_environ(self, environ):
-        """Translates a given environ to static.Cling's expectations."""
-        environ['PATH_INFO'] = environ['PATH_INFO'][len(self.base_url) + 1:]
-        return environ
-
     def _should_handle(self, path):
         """Checks if the path should be handled. Ignores the path if:
 
@@ -58,9 +55,8 @@ class Cling(WSGIHandler):
         if not self._should_handle(get_path_info(environ)):
             return self.application(environ, start_response)
 
-        # Serve static requests from static.Cling
+        # Serve static requests from werkzeug.wsgi.SharedDataMiddleware
         if not self.debug:
-            environ = self._transpose_environ(environ)
             return self.cling(environ, start_response)
         # Serve static requests in debug mode from StaticFilesHandler
         else:
@@ -70,7 +66,6 @@ class Cling(WSGIHandler):
 class MediaCling(Cling):
 
     def debug_cling(self, environ, start_response):
-        environ = self._transpose_environ(environ)
         return self.cling(environ, start_response)
 
     def get_base_dir(self):
